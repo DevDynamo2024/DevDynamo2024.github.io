@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Solana PDA Generator</title>
+    <script src="https://unpkg.com/@solana/web3.js@1.98.2/lib/index.iife.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background-color: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+        }
+        .input-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            color: #666;
+            font-weight: bold;
+        }
+        input[type="text"], textarea {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+            font-family: monospace;
+        }
+        textarea {
+            resize: vertical;
+            min-height: 60px;
+        }
+        button {
+            background-color: #9945FF;
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            width: 100%;
+        }
+        button:hover {
+            background-color: #7A2EE5;
+        }
+        .result {
+            margin-top: 20px;
+            padding: 20px;
+            background-color: #f8f9fa;
+            border-radius: 4px;
+            border: 1px solid #e9ecef;
+        }
+        .result-item {
+            margin-bottom: 15px;
+        }
+        .result-label {
+            font-weight: bold;
+            color: #666;
+            margin-bottom: 5px;
+        }
+        .result-value {
+            font-family: monospace;
+            word-break: break-all;
+            background-color: #fff;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        .error {
+            color: #dc3545;
+            margin-top: 10px;
+        }
+        .info {
+            background-color: #e7f3ff;
+            border: 1px solid #b3d9ff;
+            border-radius: 4px;
+            padding: 15px;
+            margin-bottom: 20px;
+            color: #004085;
+        }
+        .seed-input {
+            display: flex;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        .seed-input input {
+            flex: 1;
+            margin-right: 10px;
+        }
+        .seed-input button {
+            width: auto;
+            padding: 10px 20px;
+            background-color: #6c757d;
+        }
+        .seed-input button:hover {
+            background-color: #5a6268;
+        }
+        #seedsList {
+            margin-top: 10px;
+        }
+        .seed-item {
+            display: inline-block;
+            background-color: #e9ecef;
+            padding: 5px 10px;
+            margin: 5px;
+            border-radius: 4px;
+            font-family: monospace;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Solana PDA Generator</h1>
+        
+        <div class="info">
+            <strong>What is a PDA?</strong><br>
+            A Program Derived Address (PDA) is a deterministically generated address that is owned by a program. 
+            PDAs are created using a program ID and optional seeds, ensuring the same inputs always produce the same address.
+        </div>
+
+        <div class="input-group">
+            <label for="programId">Program ID (Base58 or Hex)</label>
+            <input type="text" id="programId" placeholder="e.g., 11111111111111111111111111111111">
+        </div>
+
+        <div class="input-group">
+            <label for="seeds">Seeds (optional)</label>
+            <div class="seed-input">
+                <input type="text" id="seedInput" placeholder="Enter seed (string, base58, or hex)">
+                <button onclick="addSeed()">Add Seed</button>
+            </div>
+            <div id="seedsList"></div>
+        </div>
+
+        <button onclick="generatePDA()">Generate PDA</button>
+
+        <div id="error" class="error"></div>
+
+        <div id="result" class="result" style="display: none;">
+            <div class="result-item">
+                <div class="result-label">PDA Address (Base58):</div>
+                <div class="result-value" id="pdaAddress"></div>
+            </div>
+            <div class="result-item">
+                <div class="result-label">PDA Address (Hex):</div>
+                <div class="result-value" id="pdaAddressHex"></div>
+            </div>
+            <div class="result-item">
+                <div class="result-label">Bump Seed:</div>
+                <div class="result-value" id="bumpSeed"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const { PublicKey } = solanaWeb3;
+        let seeds = [];
+
+        function addSeed() {
+            const seedInput = document.getElementById('seedInput');
+            const seedValue = seedInput.value.trim();
+            
+            if (!seedValue) {
+                showError('Please enter a seed value');
+                return;
+            }
+
+            seeds.push(seedValue);
+            updateSeedsList();
+            seedInput.value = '';
+            clearError();
+        }
+
+        function updateSeedsList() {
+            const seedsList = document.getElementById('seedsList');
+            seedsList.innerHTML = seeds.map((seed, index) => 
+                `<span class="seed-item">${seed} <span style="cursor: pointer; color: #dc3545;" onclick="removeSeed(${index})">×</span></span>`
+            ).join('');
+        }
+
+        function removeSeed(index) {
+            seeds.splice(index, 1);
+            updateSeedsList();
+        }
+
+        function processSeed(seed) {
+            // Try to parse as base58 public key
+            try {
+                const pubkey = new PublicKey(seed);
+                return pubkey.toBytes();
+            } catch (e) {
+                // Not a valid public key, continue
+            }
+
+            // Try to parse as hex
+            if (/^[0-9a-fA-F]+$/.test(seed) && seed.length % 2 === 0) {
+                const bytes = new Uint8Array(seed.length / 2);
+                for (let i = 0; i < seed.length; i += 2) {
+                    bytes[i / 2] = parseInt(seed.substr(i, 2), 16);
+                }
+                return bytes;
+            }
+
+            // Treat as string
+            const encoder = new TextEncoder();
+            return encoder.encode(seed);
+        }
+
+        async function generatePDA() {
+            clearError();
+            const programIdInput = document.getElementById('programId').value.trim();
+            
+            if (!programIdInput) {
+                showError('Please enter a Program ID');
+                return;
+            }
+
+            try {
+                // Parse program ID
+                let programId;
+                try {
+                    programId = new PublicKey(programIdInput);
+                } catch (e) {
+                    // Try hex format
+                    if (/^[0-9a-fA-F]+$/.test(programIdInput) && programIdInput.length === 64) {
+                        const bytes = new Uint8Array(32);
+                        for (let i = 0; i < 64; i += 2) {
+                            bytes[i / 2] = parseInt(programIdInput.substr(i, 2), 16);
+                        }
+                        programId = new PublicKey(bytes);
+                    } else {
+                        throw new Error('Invalid Program ID format');
+                    }
+                }
+
+                // Process seeds
+                const processedSeeds = seeds.map(seed => processSeed(seed));
+
+                // Generate PDA
+                const [pda, bump] = await PublicKey.findProgramAddress(
+                    processedSeeds,
+                    programId
+                );
+
+                // Display results
+                document.getElementById('pdaAddress').textContent = pda.toBase58();
+                
+                // Convert to hex
+                const pdaBytes = pda.toBytes();
+                const hexString = Array.from(pdaBytes)
+                    .map(b => b.toString(16).padStart(2, '0'))
+                    .join('');
+                document.getElementById('pdaAddressHex').textContent = hexString;
+                
+                document.getElementById('bumpSeed').textContent = bump;
+                document.getElementById('result').style.display = 'block';
+
+            } catch (error) {
+                showError(`Error: ${error.message}`);
+            }
+        }
+
+        function showError(message) {
+            document.getElementById('error').textContent = message;
+            document.getElementById('result').style.display = 'none';
+        }
+
+        function clearError() {
+            document.getElementById('error').textContent = '';
+        }
+
+        // Handle Enter key in seed input
+        document.getElementById('seedInput').addEventListener('keypress', function(event) {
+            if (event.key === 'Enter') {
+                addSeed();
+            }
+        });
+
+        // Handle Enter key in program ID input
+        document.getElementById('programId').addEventListener('keypress', function(event) {
+            if (event.key === 'Enter') {
+                generatePDA();
+            }
+        });
+    </script>
+</body>
+</html>
