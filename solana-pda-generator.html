@@ -129,7 +129,12 @@
         <div class="info">
             <strong>What is a PDA?</strong><br>
             A Program Derived Address (PDA) is a deterministically generated address that is owned by a program. 
-            PDAs are created using a program ID and optional seeds, ensuring the same inputs always produce the same address.
+            PDAs are created using a program ID and optional seeds, ensuring the same inputs always produce the same address.<br><br>
+            <strong>Seed formats:</strong><br>
+            • Numbers: e.g., 123, 456789 (stored as 8-byte little-endian)<br>
+            • Strings: e.g., "hello", "user123"<br>
+            • Base58 public keys: e.g., 11111111111111111111111111111111<br>
+            • Hex values: e.g., 0xdeadbeef or deadbeef
         </div>
 
         <div class="input-group">
@@ -140,7 +145,7 @@
         <div class="input-group">
             <label for="seeds">Seeds (optional)</label>
             <div class="seed-input">
-                <input type="text" id="seedInput" placeholder="Enter seed (string, base58, or hex)">
+                <input type="text" id="seedInput" placeholder="Enter seed (number, string, base58, or hex)">
                 <button onclick="addSeed()">Add Seed</button>
             </div>
             <div id="seedsList"></div>
@@ -198,6 +203,16 @@
         }
 
         function processSeed(seed) {
+            // Try to parse as number
+            if (/^-?\d+$/.test(seed)) {
+                const num = BigInt(seed);
+                // Convert number to buffer (little-endian, 8 bytes for u64)
+                const buffer = new ArrayBuffer(8);
+                const view = new DataView(buffer);
+                view.setBigUint64(0, num, true); // true for little-endian
+                return new Uint8Array(buffer);
+            }
+
             // Try to parse as base58 public key
             try {
                 const pubkey = new PublicKey(seed);
@@ -207,10 +222,12 @@
             }
 
             // Try to parse as hex
-            if (/^[0-9a-fA-F]+$/.test(seed) && seed.length % 2 === 0) {
-                const bytes = new Uint8Array(seed.length / 2);
-                for (let i = 0; i < seed.length; i += 2) {
-                    bytes[i / 2] = parseInt(seed.substr(i, 2), 16);
+            if (/^0x[0-9a-fA-F]+$/.test(seed) || (/^[0-9a-fA-F]+$/.test(seed) && seed.length % 2 === 0)) {
+                // Remove 0x prefix if present
+                const hexStr = seed.startsWith('0x') ? seed.slice(2) : seed;
+                const bytes = new Uint8Array(hexStr.length / 2);
+                for (let i = 0; i < hexStr.length; i += 2) {
+                    bytes[i / 2] = parseInt(hexStr.substr(i, 2), 16);
                 }
                 return bytes;
             }
