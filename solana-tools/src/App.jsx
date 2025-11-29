@@ -103,9 +103,10 @@ function writeU8(value) {
 const SYSTEM_PROGRAM_ID = '11111111111111111111111111111111';
 const TOKEN_PROGRAM_ID = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
 
-// RPC endpoints
+// RPC endpoints (public endpoints that support browser CORS)
 const RPC_ENDPOINTS = {
-  'Mainnet': 'https://api.mainnet-beta.solana.com',
+  'Helius (Free)': 'https://mainnet.helius-rpc.com/?api-key=1d8740dc-e5f4-421c-b823-e1bad1889eff',
+  'Mainnet (Official)': 'https://api.mainnet-beta.solana.com',
   'Devnet': 'https://api.devnet.solana.com',
   'Testnet': 'https://api.testnet.solana.com',
 };
@@ -123,7 +124,7 @@ const isValidPubkey = (pubkey) => {
 
 export default function SolanaTransactionGenerator() {
   const [activeTab, setActiveTab] = useState('sol-transfer');
-  const [rpcEndpoint, setRpcEndpoint] = useState('Mainnet');
+  const [rpcEndpoint, setRpcEndpoint] = useState('Helius (Free)');
   const [customRpc, setCustomRpc] = useState('');
   const [recentBlockhash, setRecentBlockhash] = useState('');
   const [isLoadingBlockhash, setIsLoadingBlockhash] = useState(false);
