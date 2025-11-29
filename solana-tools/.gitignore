@@ -1,0 +1,27 @@
+# Dependencies
+node_modules/
+
+# Build output (dist folder only, not the copied assets)
+dist/
+
+# Development files backup
+src-backup/
+
+# Environment files
+.env
+.env.local
+.env.production
+
+# Editor directories
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Note: assets/ and index.html in root are build artifacts for GitHub Pages
