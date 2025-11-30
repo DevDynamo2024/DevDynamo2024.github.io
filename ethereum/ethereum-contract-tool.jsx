@@ -162,19 +162,39 @@ const EthereumContractTool = () => {
           [methodName]: { error: result.error.message, blockHeight }
         });
       } else {
-        // 解析结果
+        // 使用 ethers.js ABI Coder 解析结果
         let decodedResult = result.result;
 
-        // 根据返回类型解析
-        if (method.outputs.length > 0) {
-          const outputType = method.outputs[0].type;
-          if (outputType.startsWith('uint') || outputType.startsWith('int')) {
-            decodedResult = BigInt(result.result).toString();
-          } else if (outputType === 'address') {
-            decodedResult = '0x' + result.result.slice(-40);
-          } else if (outputType === 'bool') {
-            decodedResult = parseInt(result.result, 16) !== 0 ? 'true' : 'false';
+        try {
+          if (method.outputs.length > 0 && result.result !== '0x') {
+            // 使用 ethers.js 的 AbiCoder 来解码
+            const outputTypes = method.outputs.map(o => o.type);
+            const decoded = ethers.utils.defaultAbiCoder.decode(outputTypes, result.result);
+
+            // 格式化解码结果
+            if (decoded.length === 1) {
+              const value = decoded[0];
+              // 处理不同类型的显示
+              if (ethers.BigNumber.isBigNumber(value)) {
+                decodedResult = value.toString();
+              } else if (typeof value === 'boolean') {
+                decodedResult = value.toString();
+              } else {
+                decodedResult = value;
+              }
+            } else {
+              // 多个返回值
+              decodedResult = decoded.map(v => {
+                if (ethers.BigNumber.isBigNumber(v)) return v.toString();
+                if (typeof v === 'boolean') return v.toString();
+                return v;
+              }).join(', ');
+            }
           }
+        } catch (decodeError) {
+          console.error('Decode error:', decodeError);
+          // 如果解码失败，使用原始结果
+          decodedResult = result.result;
         }
 
         setMethodResults({
