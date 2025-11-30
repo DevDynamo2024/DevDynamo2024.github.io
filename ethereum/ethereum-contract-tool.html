@@ -1,0 +1,509 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>以太坊合约调用工具</title>
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- React and ReactDOM -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+
+    <!-- Babel Standalone for JSX -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+                'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+                sans-serif;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+
+        // Lucide Icons as React components
+        const AlertCircle = ({ size = 24, className = "" }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+                <circle cx="12" cy="12" r="10"></circle>
+                <line x1="12" y1="8" x2="12" y2="12"></line>
+                <line x1="12" y1="16" x2="12.01" y2="16"></line>
+            </svg>
+        );
+
+        const CheckCircle = ({ size = 24, className = "" }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                <polyline points="22 4 12 14.01 9 11.01"></polyline>
+            </svg>
+        );
+
+        const Copy = ({ size = 24, className = "" }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+            </svg>
+        );
+
+        const Loader2 = ({ size = 24, className = "" }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={`${className} animate-spin`}>
+                <path d="M21 12a9 9 0 1 1-6.219-8.56"></path>
+            </svg>
+        );
+
+        const Info = ({ size = 24, className = "" }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+                <circle cx="12" cy="12" r="10"></circle>
+                <line x1="12" y1="16" x2="12" y2="12"></line>
+                <line x1="12" y1="8" x2="12.01" y2="8"></line>
+            </svg>
+        );
+
+        const EthereumContractTool = () => {
+            const [rpcUrl, setRpcUrl] = useState('https://eth.llamarpc.com');
+            const [contractAddress, setContractAddress] = useState('');
+            const [abi, setAbi] = useState('');
+            const [finalizedBlock, setFinalizedBlock] = useState(null);
+            const [methods, setMethods] = useState([]);
+            const [loading, setLoading] = useState(false);
+            const [error, setError] = useState('');
+            const [methodResults, setMethodResults] = useState({});
+            const [methodInputs, setMethodInputs] = useState({});
+            const [methodBlockHeights, setMethodBlockHeights] = useState({});
+
+            // 获取最新的finalized区块
+            const fetchFinalizedBlock = async () => {
+                try {
+                    const response = await fetch(rpcUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            jsonrpc: '2.0',
+                            method: 'eth_getBlockByNumber',
+                            params: ['finalized', false],
+                            id: 1
+                        })
+                    });
+                    const data = await response.json();
+                    if (data.result) {
+                        const blockNumber = parseInt(data.result.number, 16);
+                        setFinalizedBlock(blockNumber);
+                        return blockNumber;
+                    }
+                } catch (err) {
+                    console.error('获取区块失败:', err);
+                }
+            };
+
+            // 初始化时获取finalized区块
+            useEffect(() => {
+                if (rpcUrl) {
+                    fetchFinalizedBlock();
+                }
+            }, [rpcUrl]);
+
+            // 解析ABI
+            const parseABI = () => {
+                try {
+                    const parsedAbi = JSON.parse(abi);
+                    const readMethods = parsedAbi.filter(
+                        item => item.type === 'function' &&
+                        (item.stateMutability === 'view' || item.stateMutability === 'pure')
+                    );
+                    setMethods(readMethods);
+                    setError('');
+
+                    // 初始化方法输入
+                    const inputs = {};
+                    readMethods.forEach(method => {
+                        inputs[method.name] = method.inputs.map(() => '');
+                    });
+                    setMethodInputs(inputs);
+                } catch (err) {
+                    setError('ABI 解析失败,请检查格式');
+                }
+            };
+
+            // 编码函数调用数据
+            const encodeFunctionData = (method, inputs) => {
+                const types = method.inputs.map(input => input.type);
+                const signature = `${method.name}(${types.join(',')})`;
+
+                // 计算函数选择器
+                const encoder = new TextEncoder();
+                const data = encoder.encode(signature);
+
+                return crypto.subtle.digest('SHA-256', data).then(hash => {
+                    const hashArray = Array.from(new Uint8Array(hash));
+                    const selector = hashArray.slice(0, 4)
+                        .map(b => b.toString(16).padStart(2, '0'))
+                        .join('');
+
+                    // 简化版本：如果没有参数,直接返回选择器
+                    if (inputs.length === 0) {
+                        return '0x' + selector;
+                    }
+
+                    // 对于有参数的情况,使用简单的编码
+                    let params = '';
+                    inputs.forEach((input, i) => {
+                        const type = method.inputs[i].type;
+                        if (type.startsWith('uint') || type.startsWith('int')) {
+                            // 数字类型：转换为256位十六进制
+                            const num = BigInt(input || 0);
+                            params += num.toString(16).padStart(64, '0');
+                        } else if (type === 'address') {
+                            // 地址类型：移除0x并补齐到64位
+                            const addr = input.replace('0x', '').toLowerCase();
+                            params += addr.padStart(64, '0');
+                        } else if (type === 'bool') {
+                            // 布尔类型
+                            params += (input === 'true' ? '1' : '0').padStart(64, '0');
+                        } else if (type === 'bytes32' || type === 'string') {
+                            // 字符串和bytes32的简单处理
+                            const hex = input.replace('0x', '');
+                            params += hex.padStart(64, '0');
+                        }
+                    });
+
+                    return '0x' + selector + params;
+                });
+            };
+
+            // 调用合约方法
+            const callMethod = async (method) => {
+                setLoading(true);
+                const methodName = method.name;
+
+                try {
+                    const inputs = methodInputs[methodName] || [];
+                    const blockHeight = methodBlockHeights[methodName] || finalizedBlock;
+
+                    // 编码函数调用
+                    const data = await encodeFunctionData(method, inputs);
+
+                    const response = await fetch(rpcUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            jsonrpc: '2.0',
+                            method: 'eth_call',
+                            params: [{
+                                to: contractAddress,
+                                data: data
+                            }, `0x${blockHeight.toString(16)}`],
+                            id: 1
+                        })
+                    });
+
+                    const result = await response.json();
+
+                    if (result.error) {
+                        setMethodResults({
+                            ...methodResults,
+                            [methodName]: { error: result.error.message, blockHeight }
+                        });
+                    } else {
+                        // 解析结果
+                        let decodedResult = result.result;
+
+                        // 根据返回类型解析
+                        if (method.outputs.length > 0) {
+                            const outputType = method.outputs[0].type;
+                            if (outputType.startsWith('uint') || outputType.startsWith('int')) {
+                                decodedResult = BigInt(result.result).toString();
+                            } else if (outputType === 'address') {
+                                decodedResult = '0x' + result.result.slice(-40);
+                            } else if (outputType === 'bool') {
+                                decodedResult = parseInt(result.result, 16) !== 0 ? 'true' : 'false';
+                            }
+                        }
+
+                        setMethodResults({
+                            ...methodResults,
+                            [methodName]: {
+                                success: true,
+                                data: decodedResult,
+                                blockHeight,
+                                raw: result.result
+                            }
+                        });
+                    }
+                } catch (err) {
+                    setMethodResults({
+                        ...methodResults,
+                        [methodName]: { error: err.message }
+                    });
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            // 更新方法输入
+            const updateMethodInput = (methodName, inputIndex, value) => {
+                const newInputs = { ...methodInputs };
+                newInputs[methodName][inputIndex] = value;
+                setMethodInputs(newInputs);
+            };
+
+            // 复制到剪贴板
+            const copyToClipboard = (text) => {
+                navigator.clipboard.writeText(text);
+            };
+
+            return (
+                <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 p-6">
+                    <div className="max-w-6xl mx-auto">
+                        {/* 标题 */}
+                        <div className="text-center mb-8">
+                            <h1 className="text-4xl font-bold text-white mb-2">以太坊合约调用工具</h1>
+                            <p className="text-purple-200">查询智能合约的只读方法</p>
+                        </div>
+
+                        {/* 配置区域 */}
+                        <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-6 mb-6 border border-white/20">
+                            <div className="grid md:grid-cols-2 gap-4 mb-4">
+                                <div>
+                                    <label className="block text-sm font-medium text-purple-200 mb-2">
+                                        RPC 节点地址
+                                    </label>
+                                    <input
+                                        type="text"
+                                        value={rpcUrl}
+                                        onChange={(e) => setRpcUrl(e.target.value)}
+                                        className="w-full px-4 py-2 bg-white/5 border border-white/20 rounded-lg text-white placeholder-purple-300 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                                        placeholder="https://eth.llamarpc.com"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-purple-200 mb-2">
+                                        最新 Finalized 区块
+                                    </label>
+                                    <div className="flex gap-2">
+                                        <div className="flex-1 px-4 py-2 bg-white/5 border border-white/20 rounded-lg text-white">
+                                            {finalizedBlock ? `#${finalizedBlock.toLocaleString()}` : '加载中...'}
+                                        </div>
+                                        <button
+                                            onClick={fetchFinalizedBlock}
+                                            className="px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded-lg text-white transition-colors"
+                                        >
+                                            刷新
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="mb-4">
+                                <label className="block text-sm font-medium text-purple-200 mb-2">
+                                    合约地址
+                                </label>
+                                <input
+                                    type="text"
+                                    value={contractAddress}
+                                    onChange={(e) => setContractAddress(e.target.value)}
+                                    className="w-full px-4 py-2 bg-white/5 border border-white/20 rounded-lg text-white placeholder-purple-300 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                                    placeholder="0x..."
+                                />
+                            </div>
+
+                            <div className="mb-4">
+                                <label className="block text-sm font-medium text-purple-200 mb-2">
+                                    合约 ABI (JSON 格式)
+                                </label>
+                                <textarea
+                                    value={abi}
+                                    onChange={(e) => setAbi(e.target.value)}
+                                    rows={6}
+                                    className="w-full px-4 py-2 bg-white/5 border border-white/20 rounded-lg text-white placeholder-purple-300 focus:outline-none focus:ring-2 focus:ring-purple-500 font-mono text-sm"
+                                    placeholder='[{"inputs":[],"name":"totalSupply","outputs":[{"type":"uint256"}],"stateMutability":"view","type":"function"}]'
+                                />
+                            </div>
+
+                            {error && (
+                                <div className="flex items-center gap-2 text-red-300 bg-red-500/20 px-4 py-2 rounded-lg mb-4">
+                                    <AlertCircle size={20} />
+                                    <span>{error}</span>
+                                </div>
+                            )}
+
+                            <button
+                                onClick={parseABI}
+                                disabled={!contractAddress || !abi}
+                                className="w-full px-6 py-3 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 disabled:from-gray-600 disabled:to-gray-600 disabled:cursor-not-allowed rounded-lg text-white font-semibold transition-all transform hover:scale-[1.02]"
+                            >
+                                解析合约
+                            </button>
+                        </div>
+
+                        {/* 方法列表 */}
+                        {methods.length > 0 && (
+                            <div className="space-y-4">
+                                <h2 className="text-2xl font-bold text-white mb-4">可调用方法</h2>
+                                {methods.map((method, idx) => (
+                                    <div key={idx} className="bg-white/10 backdrop-blur-lg rounded-xl p-6 border border-white/20">
+                                        <div className="flex items-start justify-between mb-4">
+                                            <div>
+                                                <h3 className="text-xl font-semibold text-white mb-1">
+                                                    {method.name}
+                                                </h3>
+                                                <p className="text-sm text-purple-200">
+                                                    {method.stateMutability} •
+                                                    {method.outputs.length > 0
+                                                        ? ` 返回: ${method.outputs[0].type}`
+                                                        : ' 无返回值'}
+                                                </p>
+                                            </div>
+                                        </div>
+
+                                        {/* 参数输入 */}
+                                        {method.inputs.length > 0 && (
+                                            <div className="mb-4 space-y-3">
+                                                {method.inputs.map((input, inputIdx) => (
+                                                    <div key={inputIdx}>
+                                                        <label className="block text-sm font-medium text-purple-200 mb-1">
+                                                            {input.name || `参数 ${inputIdx + 1}`} ({input.type})
+                                                        </label>
+                                                        <input
+                                                            type="text"
+                                                            value={methodInputs[method.name]?.[inputIdx] || ''}
+                                                            onChange={(e) => updateMethodInput(method.name, inputIdx, e.target.value)}
+                                                            className="w-full px-3 py-2 bg-white/5 border border-white/20 rounded-lg text-white placeholder-purple-300 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                                                            placeholder={`输入 ${input.type} 类型的值`}
+                                                        />
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+
+                                        {/* 区块高度 */}
+                                        <div className="mb-4">
+                                            <label className="block text-sm font-medium text-purple-200 mb-1">
+                                                查询区块高度 (留空使用 Finalized)
+                                            </label>
+                                            <input
+                                                type="number"
+                                                value={methodBlockHeights[method.name] || ''}
+                                                onChange={(e) => setMethodBlockHeights({
+                                                    ...methodBlockHeights,
+                                                    [method.name]: e.target.value ? parseInt(e.target.value) : null
+                                                })}
+                                                className="w-full px-3 py-2 bg-white/5 border border-white/20 rounded-lg text-white placeholder-purple-300 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                                                placeholder={finalizedBlock ? `默认: ${finalizedBlock}` : ''}
+                                            />
+                                        </div>
+
+                                        {/* 调用按钮 */}
+                                        <button
+                                            onClick={() => callMethod(method)}
+                                            disabled={loading}
+                                            className="w-full px-4 py-2 bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-700 hover:to-cyan-700 disabled:from-gray-600 disabled:to-gray-600 rounded-lg text-white font-medium transition-all flex items-center justify-center gap-2"
+                                        >
+                                            {loading ? (
+                                                <>
+                                                    <Loader2 size={18} />
+                                                    调用中...
+                                                </>
+                                            ) : (
+                                                '调用方法'
+                                            )}
+                                        </button>
+
+                                        {/* 结果显示 */}
+                                        {methodResults[method.name] && (
+                                            <div className="mt-4">
+                                                {methodResults[method.name].error ? (
+                                                    <div className="bg-red-500/20 border border-red-500/50 rounded-lg p-4">
+                                                        <div className="flex items-start gap-2">
+                                                            <AlertCircle className="text-red-300 flex-shrink-0 mt-0.5" size={20} />
+                                                            <div>
+                                                                <p className="text-red-300 font-medium mb-1">调用失败</p>
+                                                                <p className="text-red-200 text-sm font-mono">
+                                                                    {methodResults[method.name].error}
+                                                                </p>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                ) : (
+                                                    <div className="bg-green-500/20 border border-green-500/50 rounded-lg p-4">
+                                                        <div className="flex items-start gap-2 mb-2">
+                                                            <CheckCircle className="text-green-300 flex-shrink-0 mt-0.5" size={20} />
+                                                            <div className="flex-1">
+                                                                <p className="text-green-300 font-medium mb-1">调用成功</p>
+                                                                <p className="text-green-200 text-sm mb-2">
+                                                                    区块高度: #{methodResults[method.name].blockHeight?.toLocaleString()}
+                                                                </p>
+                                                            </div>
+                                                        </div>
+                                                        <div className="bg-black/30 rounded p-3 mb-2">
+                                                            <div className="flex items-center justify-between mb-1">
+                                                                <span className="text-xs text-purple-300">解码结果:</span>
+                                                                <button
+                                                                    onClick={() => copyToClipboard(methodResults[method.name].data)}
+                                                                    className="text-purple-300 hover:text-purple-100 transition-colors"
+                                                                >
+                                                                    <Copy size={14} />
+                                                                </button>
+                                                            </div>
+                                                            <p className="text-white font-mono text-sm break-all">
+                                                                {methodResults[method.name].data}
+                                                            </p>
+                                                        </div>
+                                                        <div className="bg-black/30 rounded p-3">
+                                                            <div className="flex items-center justify-between mb-1">
+                                                                <span className="text-xs text-purple-300">原始数据:</span>
+                                                                <button
+                                                                    onClick={() => copyToClipboard(methodResults[method.name].raw)}
+                                                                    className="text-purple-300 hover:text-purple-100 transition-colors"
+                                                                >
+                                                                    <Copy size={14} />
+                                                                </button>
+                                                            </div>
+                                                            <p className="text-white font-mono text-xs break-all opacity-70">
+                                                                {methodResults[method.name].raw}
+                                                            </p>
+                                                        </div>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+
+                        {/* 使用提示 */}
+                        {methods.length === 0 && !error && (
+                            <div className="bg-white/5 backdrop-blur-lg rounded-xl p-8 border border-white/20 text-center">
+                                <Info className="mx-auto mb-4 text-purple-300" size={48} />
+                                <h3 className="text-xl font-semibold text-white mb-2">开始使用</h3>
+                                <p className="text-purple-200 mb-4">
+                                    填写合约地址和 ABI,然后点击"解析合约"按钮
+                                </p>
+                                <div className="text-left max-w-md mx-auto bg-black/30 rounded-lg p-4">
+                                    <p className="text-sm text-purple-200 mb-2">示例合约 (USDT):</p>
+                                    <p className="text-xs text-white font-mono mb-1">地址: 0xdac17f958d2ee523a2206206994597c13d831ec7</p>
+                                    <p className="text-xs text-purple-300">尝试调用 totalSupply, name, symbol 等方法</p>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            );
+        };
+
+        // Render the app
+        ReactDOM.render(<EthereumContractTool />, document.getElementById('root'));
+    </script>
+</body>
+</html>
