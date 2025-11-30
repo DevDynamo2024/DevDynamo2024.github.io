@@ -12,6 +12,9 @@
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 
+    <!-- Ethers.js for Keccak256 -->
+    <script src="https://cdn.ethers.io/lib/ethers-5.7.umd.min.js"></script>
+
     <!-- Babel Standalone for JSX -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
@@ -78,7 +81,7 @@
             const [readMethods, setReadMethods] = useState([]);
             const [writeMethods, setWriteMethods] = useState([]);
             const [activeTab, setActiveTab] = useState('read');
-            const [loading, setLoading] = useState(false);
+            const [loadingStates, setLoadingStates] = useState({});
             const [error, setError] = useState('');
             const [methodResults, setMethodResults] = useState({});
             const [methodInputs, setMethodInputs] = useState({});
@@ -142,7 +145,7 @@
                     });
                     setMethodInputs(inputs);
                 } catch (err) {
-                    setError('ABI 解析失败,请检查格式');
+                    setError('ABI 解析失败，请检查格式');
                 }
             };
 
@@ -151,58 +154,53 @@
                 const types = method.inputs.map(input => input.type);
                 const signature = `${method.name}(${types.join(',')})`;
 
-                // 计算函数选择器
-                const encoder = new TextEncoder();
-                const data = encoder.encode(signature);
+                // 计算函数选择器 (使用 Keccak-256)
+                const hash = ethers.utils.keccak256(ethers.utils.toUtf8Bytes(signature));
+                const selector = hash.slice(0, 10); // '0x' + 8 hex chars (4 bytes)
 
-                return crypto.subtle.digest('SHA-256', data).then(hash => {
-                    const hashArray = Array.from(new Uint8Array(hash));
-                    const selector = hashArray.slice(0, 4)
-                        .map(b => b.toString(16).padStart(2, '0'))
-                        .join('');
+                // 简化版本：如果没有参数，直接返回选择器
+                if (inputs.length === 0) {
+                    return selector;
+                }
 
-                    // 简化版本：如果没有参数,直接返回选择器
-                    if (inputs.length === 0) {
-                        return '0x' + selector;
+                // 对于有参数的情况，使用简单的编码
+                let params = '';
+                inputs.forEach((input, i) => {
+                    const type = method.inputs[i].type;
+                    if (type.startsWith('uint') || type.startsWith('int')) {
+                        // 数字类型：转换为256位十六进制
+                        const num = BigInt(input || 0);
+                        params += num.toString(16).padStart(64, '0');
+                    } else if (type === 'address') {
+                        // 地址类型：移除0x并补齐到64位
+                        const addr = input.replace('0x', '').toLowerCase();
+                        params += addr.padStart(64, '0');
+                    } else if (type === 'bool') {
+                        // 布尔类型
+                        params += (input === 'true' ? '1' : '0').padStart(64, '0');
+                    } else if (type === 'bytes32' || type === 'string') {
+                        // 字符串和bytes32的简单处理
+                        const hex = input.replace('0x', '');
+                        params += hex.padStart(64, '0');
                     }
-
-                    // 对于有参数的情况,使用简单的编码
-                    let params = '';
-                    inputs.forEach((input, i) => {
-                        const type = method.inputs[i].type;
-                        if (type.startsWith('uint') || type.startsWith('int')) {
-                            // 数字类型：转换为256位十六进制
-                            const num = BigInt(input || 0);
-                            params += num.toString(16).padStart(64, '0');
-                        } else if (type === 'address') {
-                            // 地址类型：移除0x并补齐到64位
-                            const addr = input.replace('0x', '').toLowerCase();
-                            params += addr.padStart(64, '0');
-                        } else if (type === 'bool') {
-                            // 布尔类型
-                            params += (input === 'true' ? '1' : '0').padStart(64, '0');
-                        } else if (type === 'bytes32' || type === 'string') {
-                            // 字符串和bytes32的简单处理
-                            const hex = input.replace('0x', '');
-                            params += hex.padStart(64, '0');
-                        }
-                    });
-
-                    return '0x' + selector + params;
                 });
+
+                return selector + params;
             };
 
             // 调用合约方法
             const callMethod = async (method) => {
-                setLoading(true);
                 const methodName = method.name;
+
+                // 设置当前方法的loading状态
+                setLoadingStates(prev => ({ ...prev, [methodName]: true }));
 
                 try {
                     const inputs = methodInputs[methodName] || [];
                     const blockHeight = methodBlockHeights[methodName] || finalizedBlock;
 
                     // 编码函数调用
-                    const data = await encodeFunctionData(method, inputs);
+                    const data = encodeFunctionData(method, inputs);
 
                     const response = await fetch(rpcUrl, {
                         method: 'POST',
@@ -221,10 +219,10 @@
                     const result = await response.json();
 
                     if (result.error) {
-                        setMethodResults({
-                            ...methodResults,
+                        setMethodResults(prev => ({
+                            ...prev,
                             [methodName]: { error: result.error.message, blockHeight }
-                        });
+                        }));
                     } else {
                         // 解析结果
                         let decodedResult = result.result;
@@ -241,23 +239,24 @@
                             }
                         }
 
-                        setMethodResults({
-                            ...methodResults,
+                        setMethodResults(prev => ({
+                            ...prev,
                             [methodName]: {
                                 success: true,
                                 data: decodedResult,
                                 blockHeight,
                                 raw: result.result
                             }
-                        });
+                        }));
                     }
                 } catch (err) {
-                    setMethodResults({
-                        ...methodResults,
+                    setMethodResults(prev => ({
+                        ...prev,
                         [methodName]: { error: err.message }
-                    });
+                    }));
                 } finally {
-                    setLoading(false);
+                    // 清除当前方法的loading状态
+                    setLoadingStates(prev => ({ ...prev, [methodName]: false }));
                 }
             };
 
@@ -444,10 +443,10 @@
                                         {/* 调用按钮 */}
                                         <button
                                             onClick={() => callMethod(method)}
-                                            disabled={loading}
+                                            disabled={loadingStates[method.name]}
                                             className="w-full px-4 py-2 bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-700 hover:to-cyan-700 disabled:from-gray-600 disabled:to-gray-600 rounded-lg text-white font-medium transition-all flex items-center justify-center gap-2"
                                         >
-                                            {loading ? (
+                                            {loadingStates[method.name] ? (
                                                 <>
                                                     <Loader2 size={18} />
                                                     调用中...
@@ -526,7 +525,7 @@
                                 <Info className="mx-auto mb-4 text-purple-300" size={48} />
                                 <h3 className="text-xl font-semibold text-white mb-2">开始使用</h3>
                                 <p className="text-purple-200 mb-4">
-                                    填写合约地址和 ABI,然后点击"解析合约"按钮
+                                    填写合约地址和 ABI，然后点击"解析合约"按钮
                                 </p>
                                 <div className="text-left max-w-md mx-auto bg-black/30 rounded-lg p-4">
                                     <p className="text-sm text-purple-200 mb-2">示例合约 (USDT):</p>
