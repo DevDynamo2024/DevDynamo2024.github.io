@@ -75,7 +75,9 @@
             const [contractAddress, setContractAddress] = useState('');
             const [abi, setAbi] = useState('');
             const [finalizedBlock, setFinalizedBlock] = useState(null);
-            const [methods, setMethods] = useState([]);
+            const [readMethods, setReadMethods] = useState([]);
+            const [writeMethods, setWriteMethods] = useState([]);
+            const [activeTab, setActiveTab] = useState('read');
             const [loading, setLoading] = useState(false);
             const [error, setError] = useState('');
             const [methodResults, setMethodResults] = useState({});
@@ -117,16 +119,25 @@
             const parseABI = () => {
                 try {
                     const parsedAbi = JSON.parse(abi);
-                    const readMethods = parsedAbi.filter(
+
+                    // 分离读方法和写方法
+                    const reads = parsedAbi.filter(
                         item => item.type === 'function' &&
                         (item.stateMutability === 'view' || item.stateMutability === 'pure')
                     );
-                    setMethods(readMethods);
+
+                    const writes = parsedAbi.filter(
+                        item => item.type === 'function' &&
+                        (item.stateMutability === 'nonpayable' || item.stateMutability === 'payable')
+                    );
+
+                    setReadMethods(reads);
+                    setWriteMethods(writes);
                     setError('');
 
-                    // 初始化方法输入
+                    // 初始化所有方法的输入
                     const inputs = {};
-                    readMethods.forEach(method => {
+                    [...reads, ...writes].forEach(method => {
                         inputs[method.name] = method.inputs.map(() => '');
                     });
                     setMethodInputs(inputs);
@@ -346,11 +357,38 @@
                             </button>
                         </div>
 
-                        {/* 方法列表 */}
-                        {methods.length > 0 && (
+                        {/* Tab 切换和方法列表 */}
+                        {(readMethods.length > 0 || writeMethods.length > 0) && (
                             <div className="space-y-4">
-                                <h2 className="text-2xl font-bold text-white mb-4">可调用方法</h2>
-                                {methods.map((method, idx) => (
+                                {/* Tab 切换 */}
+                                <div className="flex gap-2 mb-6">
+                                    <button
+                                        onClick={() => setActiveTab('read')}
+                                        className={`flex-1 px-6 py-3 rounded-lg font-semibold transition-all ${
+                                            activeTab === 'read'
+                                                ? 'bg-gradient-to-r from-blue-600 to-cyan-600 text-white shadow-lg'
+                                                : 'bg-white/10 text-purple-200 hover:bg-white/20'
+                                        }`}
+                                    >
+                                        Read 方法 ({readMethods.length})
+                                    </button>
+                                    <button
+                                        onClick={() => setActiveTab('write')}
+                                        className={`flex-1 px-6 py-3 rounded-lg font-semibold transition-all ${
+                                            activeTab === 'write'
+                                                ? 'bg-gradient-to-r from-orange-600 to-red-600 text-white shadow-lg'
+                                                : 'bg-white/10 text-purple-200 hover:bg-white/20'
+                                        }`}
+                                    >
+                                        Write 方法 ({writeMethods.length})
+                                    </button>
+                                </div>
+
+                                <h2 className="text-2xl font-bold text-white mb-4">
+                                    {activeTab === 'read' ? 'Read 方法 (只读)' : 'Write 方法 (写入)'}
+                                </h2>
+
+                                {(activeTab === 'read' ? readMethods : writeMethods).map((method, idx) => (
                                     <div key={idx} className="bg-white/10 backdrop-blur-lg rounded-xl p-6 border border-white/20">
                                         <div className="flex items-start justify-between mb-4">
                                             <div>
@@ -483,7 +521,7 @@
                         )}
 
                         {/* 使用提示 */}
-                        {methods.length === 0 && !error && (
+                        {readMethods.length === 0 && writeMethods.length === 0 && !error && (
                             <div className="bg-white/5 backdrop-blur-lg rounded-xl p-8 border border-white/20 text-center">
                                 <Info className="mx-auto mb-4 text-purple-300" size={48} />
                                 <h3 className="text-xl font-semibold text-white mb-2">开始使用</h3>
